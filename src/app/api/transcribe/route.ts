@@ -14,9 +14,19 @@
 
 import { NextRequest, NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import https from 'https';
 import type { TranscribeApiResponse } from '@/types/transcript';
 
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+const httpsAgent = new https.Agent({
+  keepAlive: true,
+  keepAliveMsecs: 30000,
+  timeout: 60000,
+});
+
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+  httpClient: { httpAgent: undefined, httpsAgent },
+});
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!process.env.OPENAI_API_KEY) {
