@@ -2,9 +2,7 @@ import type { NextConfig } from 'next';
 
 const nextConfig: NextConfig = {
   reactStrictMode: true,
-  experimental: {
-    serverComponentsExternalPackages: ['openai'],
-  },
+  serverExternalPackages: ['openai'],
 };
 
 export default nextConfig;
