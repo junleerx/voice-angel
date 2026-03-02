@@ -22,25 +22,21 @@ import {
   FFT_SIZE,
   ANALYSER_SMOOTHING,
 } from '@/lib/constants';
-import type { AudioChunk, RecordingError } from '@/types/recording';
+import type { RecordingError } from '@/types/recording';
 
 interface UseAudioRecorderOptions {
-  /** Called each time a new audio chunk is available for transcription */
-  onChunkReady: (chunk: AudioChunk) => void;
   /** Called with audio frequency data for visualizer updates */
   onAudioLevel?: (level: number, frequencyData: Uint8Array) => void;
 }
 
-export function useAudioRecorder({ onChunkReady, onAudioLevel }: UseAudioRecorderOptions) {
+export function useAudioRecorder({ onAudioLevel }: UseAudioRecorderOptions) {
   const store = useRecordingStore();
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
-  const chunkIndexRef = useRef(0);
   const recordingStartRef = useRef(0);
-  const chunkStartRef = useRef(0);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
 
@@ -149,7 +145,6 @@ export function useAudioRecorder({ onChunkReady, onAudioLevel }: UseAudioRecorde
     store.setState('recording');
     store.setError(null);
 
-    chunkIndexRef.current = 0;
     recordingStartRef.current = Date.now();
     audioChunksRef.current = [];
 
@@ -160,16 +155,6 @@ export function useAudioRecorder({ onChunkReady, onAudioLevel }: UseAudioRecorde
       recorder.ondataavailable = (event) => {
         if (event.data.size > 0) {
           audioChunksRef.current.push(event.data);
-          const now = Date.now();
-          const chunk: AudioChunk = {
-            blob: event.data,
-            mimeType: recorder.mimeType,
-            startTimeMs: chunkStartRef.current - recordingStartRef.current,
-            durationMs: now - chunkStartRef.current,
-            index: chunkIndexRef.current++,
-          };
-          chunkStartRef.current = now;
-          onChunkReady(chunk);
         }
       };
 
@@ -182,7 +167,6 @@ export function useAudioRecorder({ onChunkReady, onAudioLevel }: UseAudioRecorde
         store.setState('error');
       };
 
-      chunkStartRef.current = Date.now();
       recorder.start(CHUNK_INTERVAL_MS);
       setupAnalyser(stream);
       startTimer();

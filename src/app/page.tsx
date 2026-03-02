@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRecordingStore } from '@/stores/recordingStore';
-import { useTranscription } from '@/hooks/useTranscription';
+import { useWebSpeechTranscription } from '@/hooks/useWebSpeechTranscription';
 import { useTranslation } from '@/hooks/useTranslation';
 import { RecordingControls } from '@/components/recording/RecordingControls';
 import { TranscriptView } from '@/components/transcript/TranscriptView';
@@ -19,35 +19,31 @@ import { ThemeToggle } from '@/components/common/ThemeToggle';
 import { ExportDialog } from '@/components/common/ExportDialog';
 import { saveSession } from '@/lib/db';
 import { AUTO_SAVE_INTERVAL_MS } from '@/lib/constants';
-import type { AudioChunk } from '@/types/recording';
 import type { RecordingSession } from '@/types/session';
 
 export default function HomePage() {
   const store = useRecordingStore();
-  const { transcribeChunk, isProcessing, processingCount } = useTranscription();
   const { translateSegment } = useTranslation();
   const [isTranslating, setIsTranslating] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [finalSession, setFinalSession] = useState<RecordingSession | null>(null);
   const autoSaveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
 
   /**
-   * Handle each audio chunk: transcribe → translate → store.
+   * Called by Web Speech API when a final segment is ready → translate it.
    */
-  const handleChunkReady = useCallback(
-    async (chunk: AudioChunk) => {
-      audioChunksRef.current.push(chunk.blob);
-
-      const segment = await transcribeChunk(chunk);
-      if (!segment || !segment.originalText.trim()) return;
-
+  const handleSegmentReady = useCallback(
+    async (segment: import('@/types/transcript').TranscriptSegment) => {
+      if (!segment.originalText.trim()) return;
       setIsTranslating(true);
       await translateSegment(segment);
       setIsTranslating(false);
     },
-    [transcribeChunk, translateSegment]
+    [translateSegment]
   );
+
+  const { start: speechStart, stop: speechStop, pause: speechPause, resume: speechResume, isSupported: speechSupported } =
+    useWebSpeechTranscription(handleSegmentReady);
 
   /**
    * Persist current state to IndexedDB periodically.
@@ -168,7 +164,18 @@ export default function HomePage() {
       </nav>
 
       {/* ── Recording controls ── */}
-      <RecordingControls onChunkReady={handleChunkReady} onSessionStop={handleSessionStop} />
+      {!speechSupported && (
+        <div className="px-4 py-2 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 text-sm border-b border-amber-200 dark:border-amber-800">
+          이 브라우저는 Web Speech API를 지원하지 않습니다. Chrome 또는 Edge를 사용해주세요.
+        </div>
+      )}
+      <RecordingControls
+        onSessionStop={handleSessionStop}
+        onSpeechStart={speechStart}
+        onSpeechPause={speechPause}
+        onSpeechResume={speechResume}
+        onSpeechStop={speechStop}
+      />
 
       {/* ── Transcript view ── */}
       <div className="flex-1 min-h-0 relative">
@@ -177,9 +184,9 @@ export default function HomePage() {
 
       {/* ── Status bar ── */}
       <StatusBar
-        isTranscribing={isProcessing}
+        isTranscribing={false}
         isTranslating={isTranslating}
-        processingCount={processingCount}
+        processingCount={0}
         className="shrink-0"
       />
 

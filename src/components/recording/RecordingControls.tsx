@@ -10,14 +10,22 @@ import { useRecordingStore } from '@/stores/recordingStore';
 import { useAudioRecorder } from '@/hooks/useAudioRecorder';
 import { Timer } from './Timer';
 import { AudioVisualizer } from './AudioVisualizer';
-import type { AudioChunk } from '@/types/recording';
 
 interface RecordingControlsProps {
-  onChunkReady: (chunk: AudioChunk) => void;
   onSessionStop: (audioBlob: Blob) => void;
+  onSpeechStart: () => void;
+  onSpeechPause: () => void;
+  onSpeechResume: () => void;
+  onSpeechStop: () => void;
 }
 
-export function RecordingControls({ onChunkReady, onSessionStop }: RecordingControlsProps) {
+export function RecordingControls({
+  onSessionStop,
+  onSpeechStart,
+  onSpeechPause,
+  onSpeechResume,
+  onSpeechStop,
+}: RecordingControlsProps) {
   const { state, elapsedMs, error } = useRecordingStore();
   const [frequencyData, setFrequencyData] = useState<Uint8Array | null>(null);
   const audioLevelRef = useRef(0);
@@ -28,14 +36,29 @@ export function RecordingControls({ onChunkReady, onSessionStop }: RecordingCont
   }, []);
 
   const { start, pause, resume, stop } = useAudioRecorder({
-    onChunkReady,
     onAudioLevel: handleAudioLevel,
   });
 
+  const handleStart = useCallback(async () => {
+    await start();
+    onSpeechStart();
+  }, [start, onSpeechStart]);
+
+  const handlePause = useCallback(() => {
+    pause();
+    onSpeechPause();
+  }, [pause, onSpeechPause]);
+
+  const handleResume = useCallback(() => {
+    resume();
+    onSpeechResume();
+  }, [resume, onSpeechResume]);
+
   const handleStop = useCallback(async () => {
+    onSpeechStop();
     const blob = await stop();
     if (blob) onSessionStop(blob);
-  }, [stop, onSessionStop]);
+  }, [stop, onSessionStop, onSpeechStop]);
 
   const isRecording = state === 'recording';
   const isPaused = state === 'paused';
@@ -48,7 +71,7 @@ export function RecordingControls({ onChunkReady, onSessionStop }: RecordingCont
         <div className="flex items-center gap-2">
           {!isActive ? (
             <button
-              onClick={start}
+              onClick={handleStart}
               disabled={state === 'permission_requesting' || state === 'saving'}
               className="flex items-center gap-2 px-5 py-2.5 bg-red-500 hover:bg-red-600 disabled:bg-gray-300 text-white font-medium rounded-full transition-colors shadow-sm"
               aria-label="녹음 시작"
@@ -60,7 +83,7 @@ export function RecordingControls({ onChunkReady, onSessionStop }: RecordingCont
             <>
               {isRecording ? (
                 <button
-                  onClick={pause}
+                  onClick={handlePause}
                   className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-medium rounded-full transition-colors shadow-sm"
                   aria-label="일시정지"
                 >
@@ -69,7 +92,7 @@ export function RecordingControls({ onChunkReady, onSessionStop }: RecordingCont
                 </button>
               ) : (
                 <button
-                  onClick={resume}
+                  onClick={handleResume}
                   className="flex items-center gap-2 px-4 py-2.5 bg-green-500 hover:bg-green-600 text-white font-medium rounded-full transition-colors shadow-sm"
                   aria-label="녹음 재개"
                 >
