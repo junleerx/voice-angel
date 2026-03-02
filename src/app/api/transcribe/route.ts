@@ -13,14 +13,7 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import OpenAI from 'openai';
 import type { TranscribeApiResponse } from '@/types/transcript';
-
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-  timeout: 120000,
-  maxRetries: 3,
-});
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!process.env.OPENAI_API_KEY) {
@@ -47,22 +40,37 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: 'Audio file exceeds 25 MB limit' }, { status: 413 });
   }
 
-  // OpenAI SDK expects a File object
-  const audioAsFile = new File([audioFile], 'audio.webm', { type: audioFile.type || 'audio/webm' });
-
   try {
-    const response = await openai.audio.transcriptions.create({
-      file: audioAsFile,
-      model: 'whisper-1',
-      response_format: 'verbose_json',
-      timestamp_granularities: ['segment'],
+    const uploadForm = new FormData();
+    uploadForm.append('file', new File([audioFile], 'audio.webm', { type: audioFile.type || 'audio/webm' }));
+    uploadForm.append('model', 'whisper-1');
+    uploadForm.append('response_format', 'verbose_json');
+    uploadForm.append('timestamp_granularities[]', 'segment');
+
+    const response = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: uploadForm,
     });
 
+    if (!response.ok) {
+      const errBody = await response.json().catch(() => ({}));
+      console.error('[transcribe] Whisper API error:', response.status, errBody);
+      return NextResponse.json(
+        { error: errBody?.error?.message ?? `Whisper HTTP ${response.status}` },
+        { status: response.status }
+      );
+    }
+
+    const data = await response.json();
+
     const result: TranscribeApiResponse = {
-      text: response.text,
-      language: response.language ?? 'en',
-      confidence: calculateAverageConfidence(response),
-      segments: response.segments?.map((s) => ({
+      text: data.text,
+      language: data.language ?? 'en',
+      confidence: calculateAverageConfidence(data.segments),
+      segments: data.segments?.map((s: { id: number; start: number; end: number; text: string; avg_logprob?: number }) => ({
         id: s.id,
         start: s.start,
         end: s.end,
@@ -74,25 +82,15 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json(result);
   } catch (err) {
     console.error('[transcribe] Whisper API error:', err);
-
-    if (err instanceof OpenAI.APIError) {
-      return NextResponse.json(
-        { error: err.message, code: err.status },
-        { status: err.status ?? 500 }
-      );
-    }
-
     return NextResponse.json({ error: 'Transcription failed' }, { status: 500 });
   }
 }
 
-function calculateAverageConfidence(
-  response: OpenAI.Audio.Transcriptions.TranscriptionVerbose
-): number {
-  if (!response.segments || response.segments.length === 0) return 0.9;
-  const total = response.segments.reduce(
+function calculateAverageConfidence(segments?: Array<{ avg_logprob?: number }>): number {
+  if (!segments || segments.length === 0) return 0.9;
+  const total = segments.reduce(
     (sum, s) => sum + (s.avg_logprob ? Math.exp(s.avg_logprob) : 0.9),
     0
   );
-  return total / response.segments.length;
+  return total / segments.length;
 }
